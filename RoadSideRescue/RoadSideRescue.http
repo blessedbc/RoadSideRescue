@@ -1,0 +1,6 @@
+@RoadSideRescue_HostAddress = http://localhost:5173
+
+GET {{RoadSideRescue_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
