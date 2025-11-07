@@ -1,34 +1,94 @@
 ﻿using Microsoft.AspNetCore.SignalR;
+using RoadSideRescue.Data;
+using RoadSideRescue.Models;
+using System;
 using System.Threading.Tasks;
+using Microsoft.EntityFrameworkCore;
 
 namespace RoadSideRescue.Hubs
 {
     public class RequestsHub : Hub
     {
-        // Called by server to push events; clients subscribe to types such as RequestCreated, RequestAssigned, NewMessage, AgentLocationUpdate
+        private readonly ApplicationDbContext _db;
 
-        public override Task OnConnectedAsync()
+        public RequestsHub(ApplicationDbContext db)
         {
-            // Optionally capture presence info from query string or after a handshake method
-            return base.OnConnectedAsync();
+            _db = db;
         }
 
-        public Task AcceptRequest(string requestId)
+        // Automatically add user to request group when connecting
+        public async Task JoinRequestGroup(Guid requestId, Guid userId)
         {
-            // Called by agent client to accept a request. Server should validate and attempt assignment.
-            return Task.CompletedTask;
+            await Groups.AddToGroupAsync(Context.ConnectionId, requestId.ToString());
+
+            // Optional: Track which user is in which request
         }
 
-        public Task SendMessage(string requestId, string message)
+        // Agent accepts a request
+        public async Task AcceptRequest(Guid requestId, Guid agentId)
         {
-            // Broadcast message to the request group (owner + assigned agent)
-            return Task.CompletedTask;
+            var request = await _db.Requests.FirstOrDefaultAsync(r => r.Id == requestId);
+            if (request == null) { await Clients.Caller.SendAsync("Error", "Request not found"); return; }
+
+            request.AssignedAgentId = agentId;
+            request.Status = RequestStatus.Assigned;
+            request.UpdatedAt = DateTime.UtcNow;
+            await _db.SaveChangesAsync();
+
+            // Add agent to the request group
+            await Groups.AddToGroupAsync(Context.ConnectionId, requestId.ToString());
+
+            // Notify only owner + assigned agent
+            await Clients.Group(requestId.ToString()).SendAsync("RequestAssigned", new
+            {
+                request.Id,
+                request.Status,
+                request.AssignedAgentId
+            });
         }
 
-        public Task UpdateLocation(double lat, double lng)
+        // Send a message to the request group
+        public async Task SendMessage(Guid requestId, Guid fromUserId, string message)
         {
-            // Update agent location in memory/store and optionally broadcast to interested owners
-            return Task.CompletedTask;
+            var msg = new Message
+            {
+                Id = Guid.NewGuid(),
+                RequestId = requestId,
+                FromUserId = fromUserId,
+                Text = message,
+                CreatedAt = DateTime.UtcNow
+            };
+
+            await _db.Messages.AddAsync(msg);
+            await _db.SaveChangesAsync();
+
+            await Clients.Group(requestId.ToString()).SendAsync("NewMessage", new
+            {
+                msg.Id,
+                msg.RequestId,
+                msg.FromUserId,
+                msg.Text,
+                msg.CreatedAt
+            });
+        }
+
+        // Agent updates location
+        public async Task UpdateLocation(Guid agentId, double lat, double lng)
+        {
+            var agent = await _db.Agents.FirstOrDefaultAsync(a => a.Id == agentId);
+            if (agent == null) return;
+
+            agent.CurrentLat = lat;
+            agent.CurrentLng = lng;
+            agent.LastSeenAt = DateTime.UtcNow;
+            await _db.SaveChangesAsync();
+
+            await Clients.All.SendAsync("AgentLocationUpdate", new
+            {
+                agent.Id,
+                agent.CurrentLat,
+                agent.CurrentLng
+            });
         }
     }
 }

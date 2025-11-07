@@ -1,4 +1,5 @@
 ﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.ChangeTracking;
 using RoadSideRescue.Models;
 using System;
 using System.Collections.Generic;
@@ -21,18 +22,20 @@ namespace RoadSideRescue.Data
         {
             base.OnModelCreating(modelBuilder);
 
-            modelBuilder.Entity<User>()
-                .HasIndex(u => u.Email)
-                .IsUnique();
+            var photosComparer = new ValueComparer<List<string>>(
+            (c1, c2) => (c1 ?? new List<string>()).SequenceEqual(c2 ?? new List<string>()),
+            c => (c ?? new List<string>()).Aggregate(0, (a, v) => HashCode.Combine(a, v.GetHashCode())),
+            c => c == null ? new List<string>() : c.ToList()
+            );
+
 
             modelBuilder.Entity<Request>()
-                .Property(r => r.Photos)
-                .HasConversion(
-                    static v => System.Text.Json.JsonSerializer.Serialize(v, (System.Text.Json.JsonSerializerOptions?)null),
-                    v => System.Text.Json.JsonSerializer.Deserialize<string[]>(v, (JsonSerializerOptions?)null) ?? Array.Empty<string>());
-
-
-            // Additional indexes and spatial configuration should be added when using PostGIS/Npgsql
+            .Property(r => r.Photos)
+            .HasConversion(
+            v => JsonSerializer.Serialize(v ?? new List<string>(), (JsonSerializerOptions?)null),
+            v => JsonSerializer.Deserialize<List<string>>(v, (JsonSerializerOptions?)null) ?? new List<string>()
+            )
+              .Metadata.SetValueComparer(photosComparer);
         }
     }
 }

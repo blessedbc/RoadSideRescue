@@ -28,6 +28,6 @@ namespace RoadSideRescue.Models
         public int? Severity { get; set; }
         public Guid? AssignedAgentId { get; set; }
         public int? EtaMinutes { get; set; }
-        public string[] Photos { get; set; } = Array.Empty<string>();
+        public List<string> Photos { get; set; } = new();
     }
 }
