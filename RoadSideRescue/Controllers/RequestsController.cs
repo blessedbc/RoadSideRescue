@@ -1,13 +1,12 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿using System.Security.Claims;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using RoadSideRescue.Data;
 using RoadSideRescue.Dto;
 using RoadSideRescue.Hubs;
 using RoadSideRescue.Models;
-using System;
-using System.Linq;
-using System.Threading.Tasks;
 
 namespace RoadSideRescue.Controllers
 {
@@ -16,120 +15,83 @@ namespace RoadSideRescue.Controllers
     public class RequestsController : ControllerBase
     {
         private readonly ApplicationDbContext _db;
-        private readonly IHubContext<RequestsHub> _hubContext;
+        private readonly IHubContext<RequestsHub> _hub;
 
-        public RequestsController(ApplicationDbContext db, IHubContext<RequestsHub> hubContext)
+        public RequestsController(ApplicationDbContext db, IHubContext<RequestsHub> hub)
         {
             _db = db;
-            _hubContext = hubContext;
+            _hub = hub;
         }
 
+        // POST api/requests
+        // Requires authentication so OwnerId is taken from the JWT 'sub' claim.
         [HttpPost]
-        public async Task<IActionResult> Create([FromBody] CreateRequestDto dto)
+        [Authorize]
+        public async Task<IActionResult> CreateAsync([FromBody] CreateRequestDto dto)
         {
-            if (dto == null) return BadRequest("Request data is missing.");
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
 
-            var ownerId = Guid.NewGuid(); // TODO: replace with authenticated user id
+            var sub = User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value
+                      ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
+            if (string.IsNullOrEmpty(sub) || !Guid.TryParse(sub, out var ownerId))
+                return Unauthorized(new { message = "Unable to determine authenticated user id." });
+
             var request = new Request
             {
                 Id = Guid.NewGuid(),
                 OwnerId = ownerId,
+                Status = RequestStatus.Created,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow,
                 Lat = dto.Lat,
                 Lng = dto.Lng,
                 Address = dto.Address,
                 Description = dto.Description,
                 VehicleType = dto.VehicleType,
-                Photos = dto.Photos ?? new List<string>(),
-                CreatedAt = DateTime.UtcNow,
-                Status = RequestStatus.Created
+                Photos = dto.Photos ?? new List<string>()
             };
 
-            await _db.Requests.AddAsync(request);
+            _db.Requests.Add(request);
             await _db.SaveChangesAsync();
 
-            // Add owner to SignalR group for this request
-            await _hubContext.Groups.AddToGroupAsync(ownerId.ToString(), request.Id.ToString());
-
-            // Broadcast to all agents (or optionally to a matching service)
-            await _hubContext.Clients.All.SendAsync("RequestCreated", new
-            {
-                request.Id,
-                request.Status,
-                request.Lat,
-                request.Lng
-            });
-
-            return CreatedAtAction(nameof(Get), new { id = request.Id }, new { request.Id, request.Status });
-        }
-
-        [HttpGet("{id:guid}")]
-        public async Task<IActionResult> Get(Guid id)
-        {
-            var request = await _db.Requests.AsNoTracking().FirstOrDefaultAsync(r => r.Id == id);
-            if (request == null) return NotFound();
-
-            return Ok(new RequestSummaryDto
+            // Broadcast minimal request info to SignalR clients
+            await _hub.Clients.All.SendAsync("RequestCreated", new
             {
                 Id = request.Id,
                 Status = request.Status.ToString(),
                 Lat = request.Lat,
-                Lng = request.Lng,
-                Address = request.Address,
-                Description = request.Description,
-                VehicleType = request.VehicleType,
-                Photos = request.Photos
+                Lng = request.Lng
             });
+
+            return CreatedAtAction(nameof(GetByIdAsync), new { id = request.Id }, new { id = request.Id, status = request.Status.ToString() });
+        }
+
+        // GET api/requests/{id}
+        [HttpGet("{id:guid}")]
+        public async Task<IActionResult> GetByIdAsync(Guid id)
+        {
+            if (id == Guid.Empty)
+                return BadRequest(new { message = "Invalid id" });
+
+            var req = await _db.Requests.AsNoTracking().FirstOrDefaultAsync(r => r.Id == id);
+            if (req == null)
+                return NotFound();
+
+            var dto = new RequestSummaryDto
+            {
+                Id = req.Id,
+                Status = req.Status.ToString(),
+                Lat = req.Lat,
+                Lng = req.Lng,
+                Address = req.Address,
+                Description = req.Description,
+                VehicleType = req.VehicleType,
+                Photos = req.Photos ?? new List<string>()
+            };
+
+            return Ok(dto);
         }
     }
 }
-
-
-
-
-
-
-
-
-//using Microsoft.AspNetCore.Mvc;
-//using RoadSideRescue.Dto;
-//using RoadSideRescue.Models;
-//using System;
-//using System.Threading.Tasks;
-
-//namespace RoadSideRescue.Controllers
-//{
-//    [ApiController]
-//    [Route("api/[controller]")]
-//    public class RequestsController : ControllerBase
-//    {
-//        // TODO: inject ApplicationDbContext, matching service, signalR hub context
-//        public RequestsController() { }
-
-//        [HttpPost]
-//        public IActionResult Create([FromBody] CreateRequestDto dto)
-//        {
-//            // TODO: persist request, trigger matching/broadcast
-//            var request = new Request
-//            {
-//                Id = Guid.NewGuid(),
-//                OwnerId = Guid.NewGuid(), // replace with authenticated user id
-//                Lat = dto.Lat,
-//                Lng = dto.Lng,
-//                Address = dto.Address,
-//                Description = dto.Description,
-//                Photos = dto.Photos ?? Array.Empty<string>(),
-//                CreatedAt = DateTime.UtcNow,
-//                Status = RequestStatus.Created
-//            };
-
-//            return CreatedAtAction(nameof(Get), new { id = request.Id }, new { request.Id, request.Status });
-//        }
-
-//        [HttpGet("{id:guid}")]
-//        public IActionResult Get(Guid id)
-//        {
-//            // TODO: load from DB; return 404 if not found
-//            return Ok(new { id, status = "Created" });
-//        }
-//    }
-//}

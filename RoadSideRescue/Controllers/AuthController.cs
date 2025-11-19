@@ -1,6 +1,7 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using RoadSideRescue.Dto;
-using System.Threading.Tasks;
+using RoadSideRescue.Services.Interfaces;
+
 
 namespace RoadSideRescue.Controllers
 {
@@ -8,21 +9,52 @@ namespace RoadSideRescue.Controllers
     [Route("api/[controller]")]
     public class AuthController : ControllerBase
     {
-        // In a real app inject IAuthService
-        public AuthController() { }
+        private readonly IAuthService _authService;
 
-        [HttpPost("register")]
-        public IActionResult Register([FromBody] RegisterRequest req)
+        public AuthController(IAuthService authService)
         {
-            // TODO: validate, hash password, create User and optionally Agent row, return token
-            return CreatedAtAction(nameof(Register), new AuthResponse { UserId = System.Guid.NewGuid(), Token = "stub-token" });
+            _authService = authService;
         }
 
-        [HttpPost("login")]
-        public IActionResult Login([FromBody] LoginRequest req)
+        [HttpPost("register")]
+        public async Task<IActionResult> RegisterAsync([FromBody] RegisterRequest request)
         {
-            // TODO: validate credentials and return JWT
-            return Ok(new AuthResponse { UserId = System.Guid.NewGuid(), Token = "stub-token" });
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
+
+            try
+            {
+                var result = await _authService.RegisterAsync(request);
+                if (result == null)
+                    return BadRequest(new { message = "Registration failed" });
+
+                return CreatedAtAction(nameof(RegisterAsync), result);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = "An error occurred during registration", error = ex.Message });
+            }
+        }
+        [HttpPost("login")]
+        public async Task<IActionResult> LoginAsync([FromBody] LoginRequest request)
+        {
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
+
+            try
+            {
+                var token = await _authService.LoginAsync(request.Email, request.Password);
+
+                if (token == null)
+                    return Unauthorized(new { message = "Invalid email or password" });
+
+                return Ok(new AuthResponse { Token = token });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = "Login failed", error = ex.Message });
+            }
         }
     }
 }
+

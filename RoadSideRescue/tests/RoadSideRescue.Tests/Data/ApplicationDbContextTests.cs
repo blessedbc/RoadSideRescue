@@ -9,7 +9,7 @@ namespace RoadSideRescue.Api.Tests.Data
     public class ApplicationDbContextTests
     {
         [Fact]
-        public async Task CanInsertUserIntoDatabase()
+        public async Task CanInsertUserIntoDatabaseAsync()
         {
             var options = new DbContextOptionsBuilder<ApplicationDbContext>()
                 .UseInMemoryDatabase(databaseName: "TestDb")

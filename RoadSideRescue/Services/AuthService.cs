@@ -1,11 +1,12 @@
-﻿using System;
-using System.IdentityModel.Tokens.Jwt;
+﻿using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.AspNetCore.Identity;
 using RoadSideRescue.Models;
 using RoadSideRescue.Api.Services;
+using RoadSideRescue.Services.Interfaces;
+using RoadSideRescue.Dto;
 
 namespace RoadSideRescue.Services
 {
@@ -22,9 +23,6 @@ namespace RoadSideRescue.Services
             _passwordHasher = passwordHasher;
         }
 
-        /// <summary>
-        /// Logs in a user by verifying email and password, returns JWT if successful.
-        /// </summary>
         public async Task<string?> LoginAsync(string email, string password)
         {
             var user = await _userRepo.GetByEmailAsync(email);
@@ -38,47 +36,69 @@ namespace RoadSideRescue.Services
             return GenerateJwtToken(user);
         }
 
-        /// <summary>
-        /// Registers a new user with hashed password.
-        /// </summary>
-        public async Task RegisterAsync(string email, string password)
+        public async Task<AuthResponse?> RegisterAsync(RegisterRequest request)
         {
-            if (string.IsNullOrWhiteSpace(email))
-                throw new ArgumentException("Email is required.", nameof(email));
+            if (request == null)
+                throw new ArgumentNullException(nameof(request));
 
-            if (string.IsNullOrWhiteSpace(password))
-                throw new ArgumentException("Password is required.", nameof(password));
+            if (string.IsNullOrWhiteSpace(request.Email))
+                throw new ArgumentException("Email is required.", nameof(request.Email));
 
-            // Check if user already exists
-            var existingUser = await _userRepo.GetByEmailAsync(email);
+            if (string.IsNullOrWhiteSpace(request.Password))
+                throw new ArgumentException("Password is required.", nameof(request.Password));
+
+            var existingUser = await _userRepo.GetByEmailAsync(request.Email);
             if (existingUser != null)
                 throw new InvalidOperationException("A user with this email already exists.");
 
-            // Create new user
             var user = new User
             {
                 Id = Guid.NewGuid(),
-                Email = email,
-                Role = 0, // default role
+                Name = request.Name,
+                Email = request.Email,
+                Phone = request.Phone,
+                Role = request.Role,
+                RatingAverage = 0,
                 CreatedAt = DateTime.UtcNow
             };
 
-            // Hash password
-            user.PasswordHash = _passwordHasher.HashPassword(user, password);
+            user.PasswordHash = _passwordHasher.HashPassword(user, request.Password);
 
-            // Save user to database
             await _userRepo.AddAsync(user);
+
+            var token = GenerateJwtToken(user);
+
+            return new AuthResponse
+            {
+                UserId = user.Id,
+                Token = token
+            };
         }
 
-        /// <summary>
-        /// Generates a JWT token for the given user.
-        /// </summary>
         private string GenerateJwtToken(User user)
         {
             var jwtKey = _configuration["Jwt:Key"] ?? throw new InvalidOperationException("JWT Key is missing");
             var jwtIssuer = _configuration["Jwt:Issuer"] ?? throw new InvalidOperationException("JWT Issuer is missing");
             var jwtAudience = _configuration["Jwt:Audience"] ?? throw new InvalidOperationException("JWT Audience is missing");
             var expiryHours = int.TryParse(_configuration["Jwt:ExpiryInHours"], out var h) ? h : 24;
+
+            // Try base64 decode first (matches Program.AddJwtAuthentication behavior)
+            byte[] keyBytes;
+            if (TryBase64Decode(jwtKey, out var decoded) && decoded != null && decoded.Length >= 1)
+            {
+                keyBytes = decoded;
+            }
+            else
+            {
+                keyBytes = Encoding.UTF8.GetBytes(jwtKey);
+            }
+
+            if (keyBytes.Length < 16)
+            {
+                throw new InvalidOperationException(
+                    $"JWT Key must be at least 128 bits (16 bytes). Configured key length (bytes): {keyBytes.Length}. " +
+                    "If you intended to use a base64 key, provide a base64-encoded value that decodes to >=16 bytes.");
+            }
 
             var claims = new[]
             {
@@ -87,8 +107,8 @@ namespace RoadSideRescue.Services
                 new Claim("role", user.Role.ToString())
             };
 
-            var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey));
-            var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+            var signingKey = new SymmetricSecurityKey(keyBytes);
+            var creds = new SigningCredentials(signingKey, SecurityAlgorithms.HmacSha256);
 
             var token = new JwtSecurityToken(
                 issuer: jwtIssuer,
@@ -99,6 +119,20 @@ namespace RoadSideRescue.Services
             );
 
             return new JwtSecurityTokenHandler().WriteToken(token);
+        }
+
+        private static bool TryBase64Decode(string s, out byte[] bytes)
+        {
+            try
+            {
+                bytes = Convert.FromBase64String(s);
+                return true;
+            }
+            catch
+            {
+                bytes = Array.Empty<byte>();
+                return false;
+            }
         }
     }
 }
