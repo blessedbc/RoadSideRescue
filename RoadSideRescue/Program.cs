@@ -77,7 +77,6 @@ public partial class Program
         AddJwtAuthentication(builder, configuration);
 
         // Authorization policies (role-based)
-        // Centralize policy registration here so controllers can reference policy names.
         builder.Services.AddAuthorization(options =>
         {
             // "role" claim contains UserRole enum text (e.g., "Agent")
@@ -138,9 +137,7 @@ public partial class Program
         app.MapHub<RequestsHub>("/hubs/requests");
 
         // DATABASE MIGRATION & SEEDING (migration gate)
-        // Controlled via config:
-        //  - Database:ApplyMigrations (bool?) => If not set: true in Development, false otherwise.
-        //  - Database:FailOnPendingMigrations (bool) => If true and ApplyMigrations==false, abort startup when pending migrations exist.
+        
         var applyMigrationsConfig = configuration.GetValue<bool?>("Database:ApplyMigrations");
         var applyMigrations = applyMigrationsConfig ?? environment.IsDevelopment();
         var failOnPending = configuration.GetValue<bool>("Database:FailOnPendingMigrations", false);
@@ -208,8 +205,6 @@ public partial class Program
         var jwtKey = configuration["Jwt:Key"]
                      ?? throw new InvalidOperationException("JWT Key not configured. Set it via __Manage User Secrets__ or an environment variable (Jwt__Key).");
 
-        // Try to interpret configured key as Base64 first (common when storing binary keys),
-        // fall back to UTF8 bytes when it's plain text.
         byte[] keyBytes;
         try
         {
