@@ -1,23 +1,41 @@
-﻿namespace RoadSideRescue.Controllers
-{
-    using Microsoft.AspNetCore.Http;
-    using Microsoft.AspNetCore.Mvc;
-    using System;
-    using System.Threading.Tasks;
+﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
 
+namespace RoadSideRescue.Controllers
+{
     [ApiController]
     [Route("api/[controller]")]
+    [Authorize] // require authenticated users to upload
     public class UploadsController : ControllerBase
     {
-        [HttpPost]
-        public async Task<IActionResult> Upload(IFormFile file)
-        {
-            if (file == null || file.Length == 0) return BadRequest("No file");
+        private readonly ILogger<UploadsController> _logger;
 
-            // TODO: store file to blob storage and return public (or signed) URL
-            var fakeUrl = $"https://example.blob/{Guid.NewGuid()}/{file.FileName}";
-            await Task.CompletedTask;
-            return Created(string.Empty, new { url = fakeUrl });
+        public UploadsController(ILogger<UploadsController> logger)
+        {
+            _logger = logger;
+        }
+
+        [HttpPost]
+        public async Task<IActionResult> UploadAsync([FromForm] IFormFile file)
+        {
+            if (file == null || file.Length == 0)
+                return BadRequest(new { message = "No file uploaded" });
+
+            try
+            {
+                // Replace this with real blob storage upload logic in production.
+                var fileUrl = $"https://example.blob/{Guid.NewGuid()}/{file.FileName}";
+
+                await Task.CompletedTask;
+
+                return Created(fileUrl, new { url = fileUrl });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "File upload failed for user {User}", User?.Identity?.Name ?? "anonymous");
+                return StatusCode(500, new { message = "An internal server error occurred." });
+            }
         }
     }
 }
+

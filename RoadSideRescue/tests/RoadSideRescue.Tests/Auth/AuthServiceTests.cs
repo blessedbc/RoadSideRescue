@@ -1,12 +1,8 @@
 ﻿using Microsoft.AspNetCore.Identity;
-using Microsoft.Extensions.Configuration;
 using Moq;
 using RoadSideRescue.Api.Services;
 using RoadSideRescue.Models;
 using RoadSideRescue.Services;
-using System;
-using System.Collections.Generic;
-using System.Threading.Tasks;
 using Xunit;
 
 namespace RoadSideRescue.Api.Tests.Auth
@@ -35,7 +31,7 @@ namespace RoadSideRescue.Api.Tests.Auth
         }
 
         [Fact]
-        public async Task LoginAsync_ShouldReturn_Token_WhenCredentialsValid()
+        public async Task LoginAsync_ShouldReturn_Token_WhenCredentialsValidAsync()
         {
             // Arrange
             var user = new User
@@ -58,7 +54,7 @@ namespace RoadSideRescue.Api.Tests.Auth
         }
 
         [Fact]
-        public async Task LoginAsync_ShouldReturn_Null_WhenPasswordInvalid()
+        public async Task LoginAsync_ShouldReturn_Null_WhenPasswordInvalidAsync()
         {
             // Arrange
             var user = new User
@@ -80,7 +76,7 @@ namespace RoadSideRescue.Api.Tests.Auth
         }
 
         [Fact]
-        public async Task LoginAsync_ShouldReturn_Null_WhenUserNotFound()
+        public async Task LoginAsync_ShouldReturn_Null_WhenUserNotFoundAsync()
         {
             // Arrange
             _mockUserRepo.Setup(r => r.GetByEmailAsync("notfound@example.com"))
